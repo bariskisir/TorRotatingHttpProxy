@@ -60,6 +60,8 @@ type endpoint struct {
 	once    sync.Once
 	// Last serving result, set by Lease.Finish before done is closed.
 	lastErr error
+	// Outstanding reuse-mode leases. Guarded by Pool.mu.
+	active int
 }
 
 type slot struct {
@@ -222,6 +224,9 @@ func (p *Pool) countRejected() {
 
 // acquireLocked scans for a Ready instance. The pool lock must be held.
 func (p *Pool) acquireLocked(ctx context.Context) (*Lease, error) {
+	if !p.unique {
+		return p.acquireReuseLocked(ctx)
+	}
 	for offset := 0; offset < len(p.slots); offset++ {
 		index := (p.next + offset) % len(p.slots)
 		s := &p.slots[index]
@@ -266,6 +271,73 @@ func (p *Pool) acquireLocked(ctx context.Context) (*Lease, error) {
 		}}, nil
 	}
 	return nil, ErrNoReady
+}
+
+// acquireReuseLocked hands out concurrent leases on the same endpoint.
+// The slot stays Ready while requests are in flight, so Busy never blocks
+// and p.next keeps distributing the next call to the following instance.
+func (p *Pool) acquireReuseLocked(ctx context.Context) (*Lease, error) {
+	for offset := 0; offset < len(p.slots); offset++ {
+		index := (p.next + offset) % len(p.slots)
+		s := &p.slots[index]
+		ep := s.ep
+		if s.view.State != "Ready" || ep == nil || ep.ctx.Err() != nil {
+			continue
+		}
+		ok, err := p.store.Consume(ctx, ep.ip, false)
+		if err != nil {
+			return nil, fmt.Errorf("persist IP reservation: %w", err)
+		}
+		if !ok {
+			ep.cancel()
+			continue
+		}
+		s.view.Requests++
+		s.view.LastCheck = time.Now()
+		p.requests++
+		p.next = (index + 1) % len(p.slots)
+		ep.active++
+		p.eventLocked(ep.id, "Assigned "+ep.ip)
+		var leaseOnce sync.Once
+		return &Lease{IP: ep.ip, Instance: ep.id, Dial: ep.dial, finish: func(err error) {
+			leaseOnce.Do(func() { p.finishReuse(ep, err) })
+		}}, nil
+	}
+	return nil, ErrNoReady
+}
+
+// finishReuse accounts one concurrent lease. Success leaves the endpoint
+// Ready for immediate reuse; failure withdraws it so the next call goes to
+// another instance, then wakes the worker to rotate after in-flight drains.
+func (p *Pool) finishReuse(ep *endpoint, err error) {
+	p.mu.Lock()
+	if ep.active > 0 {
+		ep.active--
+	}
+	if err != nil {
+		p.failed++
+		p.slots[ep.id-1].fails++
+		ep.lastErr = err
+		if s := &p.slots[ep.id-1]; s.ep == ep {
+			s.ep = nil
+			s.view.State = "Rotating"
+			s.view.LastError = err.Error()
+			p.eventLocked(ep.id, "Request finished; rotating")
+		}
+		p.mu.Unlock()
+		ep.once.Do(func() { close(ep.done) })
+		return
+	}
+	p.completed++
+	p.slots[ep.id-1].fails = 0
+	p.mu.Unlock()
+}
+
+// reuseActive reports outstanding leases for drain waits.
+func (p *Pool) reuseActive(ep *endpoint) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return ep.active
 }
 
 // Size reports the number of managed instances.

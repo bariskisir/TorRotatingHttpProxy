@@ -413,6 +413,9 @@ func cycle(ctx context.Context, cfg Config, pool *Pool, session *torSession, id 
 		return fmt.Errorf("IP check: %w", err)
 	}
 	ep.ip = ip
+	if !cfg.UniqueIP {
+		return cycleReuse(ctx, pool, session, ep, ip)
+	}
 	for {
 		ready, err := pool.publish(ctx, ep)
 		if err != nil {
@@ -436,17 +439,57 @@ func cycle(ctx context.Context, cfg Config, pool *Pool, session *torSession, id 
 			pool.withdraw(ep)
 			return fmt.Errorf("%w: %v", errServeFailures, ep.lastErr)
 		}
-		if cfg.UniqueIP || ep.lastErr != nil {
-			// Unique mode rotates after every assignment; reuse mode rotates
-			// after a failed one so the next request gets a fresh circuit.
-			pool.withdraw(ep)
-			return ep.lastErr
+		// Unique mode rotates after every assignment.
+		pool.withdraw(ep)
+		return ep.lastErr
+	}
+}
+
+// cycleReuse serves concurrent leases on one verified circuit. Healthy leases
+// leave the endpoint Ready, so there is no Busy lock and round-robin keeps
+// spreading the next call to the following instance. Only a failed lease
+// withdraws the endpoint; the worker then drains in-flight leases before
+// closing the circuit and building a fresh one.
+func cycleReuse(ctx context.Context, pool *Pool, session *torSession, ep *endpoint, ip string) error {
+	ready, err := pool.publish(ctx, ep)
+	if err != nil {
+		return err
+	}
+	if !ready {
+		return fmt.Errorf("IP %s is used, reserved, or its circuit expired", ip)
+	}
+	select {
+	case <-ep.done:
+		// A failed lease asked for rotation; the slot is already withdrawn
+		// so new calls go to other instances while in-flight drains.
+	case <-ep.ctx.Done():
+		pool.withdraw(ep)
+		return errors.New("verified circuit closed")
+	case <-session.ctrl.done:
+		pool.withdraw(ep)
+		return errControlClosed
+	}
+	if ep.lastErr != nil && pool.consecutiveFailures(ep.id) >= maxConsecutiveServeFailures {
+		drainReuse(ctx, pool, session, ep)
+		pool.withdraw(ep)
+		return fmt.Errorf("%w: %v", errServeFailures, ep.lastErr)
+	}
+	drainReuse(ctx, pool, session, ep)
+	pool.withdraw(ep)
+	return ep.lastErr
+}
+
+func drainReuse(ctx context.Context, pool *Pool, session *torSession, ep *endpoint) {
+	for pool.reuseActive(ep) > 0 {
+		select {
+		case <-ep.ctx.Done():
+			return
+		case <-session.ctrl.done:
+			return
+		case <-ctx.Done():
+			return
+		case <-time.After(20 * time.Millisecond):
 		}
-		// Reuse mode keeps a healthy verified circuit and serves the next
-		// assignment with the same IP instead of rotating.
-		ep.done = make(chan struct{})
-		ep.once = sync.Once{}
-		ep.lastErr = nil
 	}
 }
 

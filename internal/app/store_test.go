@@ -142,7 +142,7 @@ func TestPoolUniqueReservationAndBusyExclusion(t *testing.T) {
 	}
 }
 
-func TestPoolReuseRequiresExplicitRepublish(t *testing.T) {
+func TestPoolReuseAllowsConcurrentLeasesWithoutBusy(t *testing.T) {
 	cfg := testConfig()
 	cfg.UniqueIP = false
 	p := NewPool(cfg, testStore(t))
@@ -151,24 +151,71 @@ func TestPoolReuseRequiresExplicitRepublish(t *testing.T) {
 			t.Fatal(ok, err)
 		}
 	}
-	for range 2 {
+	// Two overlapping leases must succeed on different instances (round-robin),
+	// without any Busy lock.
+	first, err := p.Acquire(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := p.Acquire(context.Background(), 0)
+	if err != nil {
+		first.Finish(nil)
+		t.Fatal(err)
+	}
+	if first.Instance == second.Instance {
+		first.Finish(nil)
+		second.Finish(nil)
+		t.Fatalf("round-robin broken: both leases on instance %d", first.Instance)
+	}
+	s, _ := p.Snapshot(context.Background())
+	if s.States["Busy"] != 0 || s.States["Ready"] != 2 {
+		first.Finish(nil)
+		second.Finish(nil)
+		t.Fatalf("reuse mode must stay Ready while serving: %+v", s.States)
+	}
+	first.Finish(nil)
+	second.Finish(nil)
+	// Healthy leases leave the endpoint Ready: immediate reuse without republish.
+	for range 4 {
 		lease, err := p.Acquire(context.Background(), 0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		lease.Finish(nil)
 	}
-	if _, err := p.Acquire(context.Background(), 0); !errors.Is(err, ErrNoReady) {
-		t.Fatalf("finished instances cannot be reused without rotation: %v", err)
+	s, _ = p.Snapshot(context.Background())
+	if s.Completed != 6 || s.States["Ready"] != 2 {
+		t.Fatalf("healthy reuse should stay Ready: %+v", s)
 	}
-	if ok, err := p.publish(context.Background(), testEndpoint(t, 1, "8.8.8.8")); !ok || err != nil {
-		t.Fatal(ok, err)
+}
+
+func TestPoolReuseFailureWithdrawsOnlyFailedInstance(t *testing.T) {
+	cfg := testConfig()
+	cfg.UniqueIP = false
+	p := NewPool(cfg, testStore(t))
+	for id := 1; id <= 2; id++ {
+		if ok, err := p.publish(context.Background(), testEndpoint(t, id, "8.8.8.8")); !ok || err != nil {
+			t.Fatal(ok, err)
+		}
 	}
+	failed, err := p.Acquire(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed.Finish(errors.New("boom"))
+	// Failed instance is Rotating, but the other one still serves.
 	lease, err := p.Acquire(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if lease.Instance == failed.Instance {
+		t.Fatalf("failed instance %d was reused without rotation", failed.Instance)
+	}
 	lease.Finish(nil)
+	s, _ := p.Snapshot(context.Background())
+	if s.States["Ready"] != 1 || s.States["Rotating"] != 1 {
+		t.Fatalf("only the failed instance should rotate: %+v", s.States)
+	}
 }
 
 func TestPoolClosedCircuitAndDatabaseFailure(t *testing.T) {
