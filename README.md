@@ -45,6 +45,7 @@ docker run -d --name tor-proxy \
   -p 3128:3128 \
   -p 8080:8080 \
   -e TOR_COUNT=10 \
+  -e UNIQUE_IP=true \
   -v tor-proxy-data:/data \
   bariskisir/torrotatinghttpproxy
 ```
@@ -59,6 +60,7 @@ docker run -d --name tor-proxy `
   -p 3128:3128 `
   -p 8080:8080 `
   -e TOR_COUNT=10 `
+  -e UNIQUE_IP=true `
   -v tor-proxy-data:/data `
   bariskisir/torrotatinghttpproxy
 ```
