@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>TorRotatingHttpProxy</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <div class="brand"><span class="logo" aria-hidden="true">↻</span><div><p class="eyebrow">NETWORK OPERATIONS</p><h1>TorRotatingHttpProxy</h1></div></div>
+      <span id="connection" class="badge connecting" role="status">Connecting</span>
+    </header>
+    <section class="intro"><div><h2>Your exit pool, live.</h2><p id="intro-sub">Verified circuits. Request-by-request rotation.</p></div><div class="policy"><span id="policy" class="badge">Unique IPs</span><small id="restart-policy"></small></div></section>
+    <section class="metrics" aria-label="Pool overview">
+      <article><span>Ready</span><strong id="ready" class="green">0</strong><small>Available for the next request</small></article>
+      <article><span>Busy</span><strong id="busy">0</strong><small>Requests or tunnels in flight</small></article>
+      <article><span>Replenishing</span><strong id="replenishing">0</strong><small>Starting, checking or rotating</small></article>
+      <article><span>Used IPs</span><strong id="used">0</strong><small><span id="known">0</span> distinct addresses observed</small></article>
+    </section>
+    <section class="panel">
+      <div class="section-header"><div><h2>Instances <span id="instance-count" class="count">0</span></h2><p>One active request or HTTPS tunnel per instance.</p></div><span id="request-summary" class="subtle"></span></div>
+      <div class="table-scroll"><table><thead><tr><th>Instance</th><th>Status</th><th>Exit IPv4</th><th>Bootstrap</th><th>Requests</th><th>Last check</th><th>Last issue</th></tr></thead><tbody id="instances"><tr><td colspan="7" class="empty">Waiting for the controller…</td></tr></tbody></table></div>
+    </section>
+    <section class="panel test-panel">
+      <div class="section-header"><div><h2>Proxy test <span id="test-state" class="badge">Idle</span></h2><p>Send real GET requests through this proxy. Each HTTPS request opens a new tunnel.</p></div></div>
+      <form id="test-form">
+        <label class="url-field">Target URL<input id="test-url" type="url" value="https://api.ipify.org" required spellcheck="false"></label>
+        <label>Requests / second<input id="test-rps" type="number" min="1" max="1000" value="1" required></label>
+        <button id="test-start" class="primary" type="submit">▶ Start test</button>
+        <button id="test-stop" type="button" disabled>■ Stop</button>
+      </form>
+      <p id="test-feedback" class="feedback" role="status"></p>
+      <div class="test-metrics">
+        <div><span>Successful</span><strong id="test-success" class="green">0</strong></div>
+        <div><span>Failed</span><strong id="test-failed">0</strong></div>
+        <div><span>503 responses</span><strong id="test-503">0</strong></div>
+        <div><span>Average response</span><strong id="test-average">—</strong></div>
+        <div><span>Successful average</span><strong id="test-success-average">—</strong></div>
+        <div><span>Completed / sec</span><strong id="test-actual">0</strong></div>
+      </div>
+      <div class="test-footer"><span id="test-details">No test has run yet.</span><span>128 in flight max · 1 MiB response limit</span></div>
+      <p id="test-error" class="error-text"></p>
+    </section>
+    <div class="bottom-grid">
+      <section class="panel">
+        <div class="section-header"><div><h2>IP history</h2><p>Persistent across restarts. “Used” includes failed attempts.</p></div></div>
+        <div class="filters"><input id="ip-search" type="search" placeholder="Search IPv4 address" aria-label="Search IP addresses"><select id="ip-filter" aria-label="Filter usage"><option value="">All addresses</option><option value="true">Used</option><option value="false">Not used</option></select></div>
+        <div class="table-scroll"><table><thead><tr><th>IPv4 address</th><th>Usage</th></tr></thead><tbody id="ip-history"><tr><td colspan="2" class="empty">No addresses discovered yet.</td></tr></tbody></table></div>
+        <div class="pagination"><span id="page-label">0 addresses</span><div><button id="previous" disabled aria-label="Previous page">←</button><button id="next" disabled aria-label="Next page">→</button></div></div>
+      </section>
+      <section class="panel"><div class="section-header"><div><h2>Activity</h2><p>Latest 100 controller events.</p></div></div><ol id="events" class="events"><li class="empty">Waiting for activity…</li></ol></section>
+    </div>
+    <footer><span>HTTP proxy · HTTP &amp; HTTPS destinations · No authentication</span><span id="footer-rotation">HTTPS rotates when the tunnel closes.</span></footer>
+  </main>
+</body>
+</html>

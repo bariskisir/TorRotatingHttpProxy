@@ -1,0 +1,9 @@
+.git
+.github
+scripts
+data
+bin
+*.db*
+coverage.out
+README.md
+docs
