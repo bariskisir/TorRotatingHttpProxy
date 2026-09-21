@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/bariskisir/TorRotatingHttpProxy/actions/workflows/ci.yml"><img src="https://github.com/bariskisir/TorRotatingHttpProxy/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="https://github.com/bariskisir/TorRotatingHttpProxy/tags"><img src="https://img.shields.io/github/v/tag/bariskisir/TorRotatingHttpProxy" alt="Latest tag"></a>
-  <a href="https://hub.docker.com/r/bariskisir/torrotatinghttpproxy"><img src="https://img.shields.io/docker/pulls/bariskisir/torrotatinghttpproxy" alt="Docker Hub pulls"></a>
+  <a href="https://hub.docker.com/r/bariskisir/torrotatinghttpproxy"><img src="https://img.shields.io/docker/pulls/bariskisir/torrotatinghttpproxy" alt="DockerHub pulls"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
 
